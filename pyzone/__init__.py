@@ -91,7 +91,7 @@ class Zone(object):
         """
         @param name - name of the zone
         """
-        self.__zone_attr = {}
+        self._zone_attr = {}
         self.set_attr(ZONE_ENTRY['ZNAME'], name)
 
     def refresh_all_info(self):
@@ -101,12 +101,12 @@ class Zone(object):
         # Do not use uuid as it's not available in state configured
         # Do not use self.get_attr as it would call refresh_all_info again :-)
         state_cmd = [CMD_ZONEADM, "-z",
-                self.__zone_attr[ZONE_ENTRY['ZNAME']], "list",  "-p"]
+                self._zone_attr[ZONE_ENTRY['ZNAME']], "list",  "-p"]
 
         line_items = str(getoutputs(state_cmd)).split(":")
         for val in ZONE_ENTRY.values():
-            # our ZONE_MAPING reflects __zone_attr
-            self.__zone_attr[val] = line_items[val]
+            # our ZONE_MAPING reflects _zone_attr
+            self._zone_attr[val] = line_items[val]
 
     def set_attr(self, attr, value):
         """
@@ -117,7 +117,7 @@ class Zone(object):
         Note: for now set_attr takes effect only on zone creation
         """
         if attr in ZONE_ENTRY.values():
-            self.__zone_attr[int(attr)] = value
+            self._zone_attr[int(attr)] = value
         else:
             raise ZoneException("Unsupported ZONE_ENTRY attribute: %s." %
                             str(attr))
@@ -130,7 +130,7 @@ class Zone(object):
         self.refresh_all_info() # runs zoneadm list
 
         try:
-            return self.__zone_attr[attr]
+            return self._zone_attr[attr]
         except KeyError:
             return fallback
 
@@ -232,7 +232,7 @@ class Zone(object):
     # Changing state of Zones
     #--------------------------------------------------------------------------
 
-    def __zone_in_states(self, state_list):
+    def _zone_in_states(self, state_list):
         """
         @param state_list list of ZONE_STATE values
         @raise ZoneException in case that zone.get_state does not match
@@ -248,7 +248,7 @@ class Zone(object):
         """
         check_user_permissions()
 
-        self.__zone_in_states((ZONE_STATE['installed'],))
+        self._zone_in_states((ZONE_STATE['installed'],))
         boot_cmd = [CMD_PFEXEC , CMD_ZONEADM, "-z", self.get_name(), "boot"]
         getoutputs(boot_cmd)
 
@@ -259,7 +259,7 @@ class Zone(object):
         """
         check_user_permissions()
 
-        self.__zone_in_states((ZONE_STATE['installed'],))
+        self._zone_in_states((ZONE_STATE['installed'],))
         ready_cmd = [CMD_PFEXEC, CMD_ZONEADM, "-z", self.get_name(), "ready"]
         getoutputs(ready_cmd)
 
@@ -269,7 +269,7 @@ class Zone(object):
         """
         check_user_permissions()
 
-        self.__zone_in_states((ZONE_STATE['running'],))
+        self._zone_in_states((ZONE_STATE['running'],))
         shutdown_cmd = [CMD_PFEXEC , CMD_ZONEADM, "-z", self.get_name(),
                 "shutdown"]
         getoutputs(shutdown_cmd)
@@ -280,7 +280,7 @@ class Zone(object):
         """
         check_user_permissions()
 
-        self.__zone_in_states((ZONE_STATE['running'],))
+        self._zone_in_states((ZONE_STATE['running'],))
         halt_cmd = [CMD_PFEXEC , CMD_ZONEADM, "-z", self.get_name(), "halt"]
         getoutputs(halt_cmd)
 
@@ -290,7 +290,7 @@ class Zone(object):
         """
         check_user_permissions()
 
-        self.__zone_in_states((ZONE_STATE['running'],))
+        self._zone_in_states((ZONE_STATE['running'],))
         reboot_cmd = [CMD_PFEXEC , CMD_ZONEADM, "-z", self.get_name(),
                 "shutdown", "-r"]
         getoutputs(reboot_cmd)
@@ -304,7 +304,7 @@ class Zone(object):
         """
         check_user_permissions()
 
-        self.__zone_in_states((ZONE_STATE['configured'],))
+        self._zone_in_states((ZONE_STATE['configured'],))
 
         install_cmd = [CMD_PFEXEC, CMD_ZONEADM, "-z", self.get_name(),
                 "install"]
@@ -403,7 +403,7 @@ class Zone(object):
         Note: RBAC aware (pfexec and roles check)
         """
         check_user_permissions()
-        self.__zone_in_states(ZONE_STATE['configured'],)
+        self._zone_in_states(ZONE_STATE['configured'],)
         del_cmd = ["pfexec", CMD_ZONECFG, "-z", self.get_name(), "delete", "-F"]
         getoutputs(del_cmd)
 
