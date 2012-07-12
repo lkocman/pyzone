@@ -29,6 +29,7 @@ ZONE_STATE = {
     'ready' : 3, # assigned id but no user process yet running
 }
 
+# TODO: more Zone*Exceptions and replace Key/ValueErrors
 class ZoneException(Exception):
     """General zone exception"""
     pass
@@ -91,28 +92,29 @@ class Zone(object):
         @param name - name of the zone
         """
         self.__zone_attr = {}
-        self.set_zone_attr(ZONE_ENTRY['ZNAME'], name)
+        self.set_attr(ZONE_ENTRY['ZNAME'], name)
 
     def refresh_all_info(self):
         """
         Possibly all zone properties can be changed so let's refresh it asap
         """
         # Do not use uuid as it's not available in state configured
+        # Do not use self.get_attr as it would call refresh_all_info again :-)
         state_cmd = [CMD_ZONEADM, "-z",
-                self.get_zone_attr(ZONE_ENTRY['ZNAME']), "list",  "-p"]
+                self.__zone_attr[ZONE_ENTRY['ZNAME']], "list",  "-p"]
 
         line_items = str(getoutputs(state_cmd)).split(":")
         for val in ZONE_ENTRY.values():
             # our ZONE_MAPING reflects __zone_attr
             self.__zone_attr[val] = line_items[val]
 
-    def set_zone_attr(self, attr, value):
+    def set_attr(self, attr, value):
         """
         sets zone attribute
         @param attr - integer value from ZONE_ENTRY
         @param value - value
 
-        Note: for now set_zone_attr takes effect only on zone creation
+        Note: for now set_attr takes effect only on zone creation
         """
         if attr in ZONE_ENTRY.values():
             self.__zone_attr[int(attr)] = value
@@ -120,43 +122,111 @@ class Zone(object):
             raise ZoneException("Unsupported ZONE_ENTRY attribute: %s." %
                             str(attr))
 
-    def get_zone_attr(self, attr, fallback=None):
+    def get_attr(self, attr, fallback=None):
         """
         returns zone attribute
         @param attr - integer value from ZONE_ENTRY
         """
+        self.refresh_all_info() # runs zoneadm list
+
         try:
             return self.__zone_attr[attr]
         except KeyError:
             return fallback
 
     #--------------------------------------------------------------------------
-    # wrapped get_zone_attr calls
+    # some extra set/add calls
+    #--------------------------------------------------------------------------
+    def remove_property(self, property_name):
+        """
+        removes property such as fs, dataset, net ...
+        @param property_name - a string
+
+        Note: RBAC (pfexec) aware
+        """
+
+        zonecfg_cmd = [CMD_PFEXEC, CMD_ZONECFG, "-z", self.get_name()]
+        property_part = "remove %s; exit" % property_name
+        zonecfg_cmd.append(property_part)
+
+        getoutputs(zonecfg_cmd)
+
+    def add_property(self, property_cfg):
+        """
+        This function basically handles actions such as add fs ...
+        @param section_cfg
+               format { 'section' : [(attr, value), (attr2, value), ...],  }
+               You can specify multiple sections inside one dict
+
+        Note: RBAC (pfexec) aware
+        """
+        zonecfg_cmd = [CMD_PFEXEC, CMD_ZONECFG, "-z", self.get_name()]
+
+        available_properties = {
+            "capped-memory" : ("physical", "swap", "locked"),
+            "capped-cpu" : ("ncpus",),
+            "fs" : ("dir", "special", "type"),
+            "dataset" : ("name",),
+            # TODO "net" : (),
+        }
+
+
+        for prop, attrs in property_cfg.iteritems():
+            if prop not in available_properties.keys():
+                raise KeyError ("add_zone_attr: unknown property %s." % prop)
+
+            prop_part = ["add %s" % prop]
+            get_keys = lambda x: x[0] # first item from each tuple in attrs
+            keys = set(map(get_keys, attrs))
+
+            if keys != set(available_properties[prop]):
+                raise ValueError("selected attributes: %s do not match "
+                "expectations: %s." % (keys, set(available_properties[prop])))
+
+            for attr in attrs:
+                prop_part.append("set %s=%s" % (str(attr[0]), str(attr[1])))
+
+            prop_part.append("end") # End of section
+
+        prop_part.append("exit")
+
+        zonecfg_cmd.append(";".join(prop_part))
+        getoutputs(zonecfg_cmd)
+
+    #--------------------------------------------------------------------------
+    # wrapped get_attr calls
     #--------------------------------------------------------------------------
     def get_zonepath(self):
         """
         returns an integer reprezenting state in ZONE_STATE
         """
-        return self.__zone_attr[ZONE_ENTRY['ZROOT']]
+        return self.get_attr(ZONE_ENTRY['ZROOT'])
 
     def get_state(self):
         """
         returns an integer reprezenting state in ZONE_STATE
         please call refresh_all_info() before calling get_state()
         """
-        return ZONE_STATE[self.__zone_attr[ZONE_ENTRY['ZSTATE']]]
+        return ZONE_STATE[self.get_attr(ZONE_ENTRY['ZSTATE'])]
 
     def get_brand(self):
         """
         returns brand of the zone
         """
-        return self.__zone_attr[ZONE_ENTRY['ZBRAND']]
+        return self.get_attr(ZONE_ENTRY['ZBRAND'])
 
     def get_name(self):
         """
         returns zone name as listed by zoneadm list -pc
         """
-        return self.__zone_attr[ZONE_ENTRY['ZNAME']]
+        return self.get_attr(ZONE_ENTRY['ZNAME'])
+
+    def get_zone_root(self):
+        """
+        returns zone root
+        eg. /zones/myzone/root
+        """
+        return self.get_zonepath() + "/root"
 
     #--------------------------------------------------------------------------
     # Changing state of Zones
@@ -261,6 +331,50 @@ class Zone(object):
         if brand in ("solaris10", "solaris"):
             self._zonecfg_set("brand", brand)
 
+        #self._write_sysidcfg()
+
+    def _write_sysidcfg(self, config_dict):
+        """
+        post install configuration of the zone
+        this should be called only by self.create()
+
+        """
+        sysidcfg_path = os.path.join(self.get_zone_root(), "etc",
+                "sysidcfg")
+
+        cfg_file = None
+
+        defaults = {
+            "root_password"      : "test",
+            "systen_locale"      : "en_US",
+            "timeserver"         : "localhost",
+            "timezone"           : "US/Eastern",
+            "terminal"           : "vt100",
+            "security_policy"    : "NONE",
+            "nfs4_domain"        : "localdomain",
+            "name_service"       : "NONE",
+            #these values require name_service : DNS {\ndomain_name=val\n...}
+            "domain_name"        : None,
+            "name_server"        : None, # A IPs separated by comma
+            "search"             : None, # Hosts separated by comma
+            # oev
+
+            # need to check if this is necessary when there is no networking
+            "network_interface"  : "PRIMARY",
+            "ip_address"         : "127.0.0.1",
+            "netmask"            : "255.255.255.0",
+            "protocol _ipv6"     : "no",
+            "default_route"      : "127.0.0.1",
+
+
+        }
+
+        # This is probably the only reason why Zone Admin is not enough
+#        cfg_file = open(sysidcfg_path, "w")
+
+        # Contents shoudld vary according to network settings
+        # let's leave this simple since we don't support networking yet
+
     def _zonecfg_set(self, attr, value):
         """
         note: RBAC aware (pfexec and roles check)
@@ -322,6 +436,7 @@ class Zone(object):
         zlogin_cmd = " ".join(zlogin_cmd)
         getoutputs(zlogin_cmd)
 
+# End of Class
 
 def get_zone_by_name(zname):
     """
@@ -350,7 +465,7 @@ def list_zones(pattern=None):
 
     def set_attr(zone, attr, line):
         """just a helper function """
-        zone.set_zone_attr(attr, line[attr])
+        zone.set_attr(attr, line[attr])
 
     # line format:
     # zoneid:zonename:state:zonepath:uuid:brand:ip-type:r/w:file-mac-profile
