@@ -10,6 +10,9 @@ CMD_ZONECFG = "/usr/sbin/zonecfg"
 CMD_ZLOGIN  = "/usr/sbin/zlogin"
 CMD_PFEXEC  = "/usr/bin/pfexec"
 
+ZONE_TMPL_SUFFIX = ".xml"
+ZONE_TMPL_DIR = "/etc/zones"
+
 # zoneadm.c ZONE_ENTRY like structure
 ZONE_ENTRY = {
     'ZID' :    0,
@@ -40,25 +43,60 @@ class PrivilegesError(Exception):
     """
     pass
 
+def check_zone_template(template):
+    """
+    @raise ZoneException in case that template does not exist
+    @param template
+    """
+    if not os.path.isfile(os.path.join(ZONE_TMPL_DIR, template + ZONE_TMPL_SUFFIX)):
+        raise ZoneException("Template %s does not exist." % (template))
+
 def check_user_permissions(profiles=("Primary Administrator",
-                            "Zone Management")):
+                            ("Zone Management", "Zone Security"))):
     """
     this function is being used to check wheather the user is capable of executing
     zone* commands
 
     @param - profiles list of profiles to match. Default:
-             ["Primary Administrator", "Zone Management"]
+             ["Primary Administrator", ("Zone Management", "Zone Security")]
 
+             user must be in all profiles listed per parent dict item
     @raise - PrivilegeError in case that none of profiles is being listed by
              profiles(1)
     """
 
+    def sublist_in(lst, sublst):
+        """
+        simple check if items from sublst are part of list
+        @param lst
+        @param sublst
+        """
+        for i in sublist:
+            if i not in lst: return False
+        return True
+
+    def oneof(item_list, items):
+        """
+        helper function if one of items is in item_list
+        @param item_list
+        @param items
+        """
+        for i in item_list:
+            if type(i) == type(list()) or type(i) == type(dict()):
+                if sublist_in(item_list, i): return True
+            else:
+                if i in items: return True
+
+        return False
+
+
     if os.uname()[0] == "SunOS" and profiles:
         profiles_output = getoutputs(["profiles", ], False)
-        for line in str(profiles_output).split("\n"):
-            line = line.strip()
-            if line in profiles:
-                return
+        # line/output is something like \tPROFILE NAME\n
+        # also we should remove last line as it's just \n
+        prof_list = map(lambda a: a.strip(), profiles_output.split("\n"))[:-1]
+
+        return oneof(prof_list, profiles)
 
     # last chance the root
     if os.getuid() == 0:
@@ -122,17 +160,20 @@ class Zone(object):
             raise ZoneException("Unsupported ZONE_ENTRY attribute: %s." %
                             str(attr))
 
-    def get_attr(self, attr, fallback=None):
+    def get_attr(self, attr, refresh=True):
         """
         returns zone attribute
         @param attr - integer value from ZONE_ENTRY
+        @param refresh - wheather to refresh info from zoneadm list before
+                         printing the value. Useful during zone creation.
+                         or to avoid recursion for some reason.
         """
-        self.refresh_all_info() # runs zoneadm list
 
-        try:
-            return self._zone_attr[attr]
-        except KeyError:
-            return fallback
+        if refresh:
+            self.refresh_all_info() # runs zoneadm list
+
+        # TODO thinking of try/except KeyError here
+        return self._zone_attr[attr]
 
     #--------------------------------------------------------------------------
     # some extra set/add calls
@@ -196,37 +237,42 @@ class Zone(object):
     #--------------------------------------------------------------------------
     # wrapped get_attr calls
     #--------------------------------------------------------------------------
-    def get_zonepath(self):
+    def set_zonepath(self, path):
+        """
+        just wrapped set_attr as this will be used during zone creation
+        @param path
+        """
+        self.set_attr(ZONE_ENTRY['ZROOT'], path)
+
+    def get_zonepath(self, refresh=False):
         """
         returns an integer reprezenting state in ZONE_STATE
+        @param refresh=True - refresh info from zoneadm list
         """
-        return self.get_attr(ZONE_ENTRY['ZROOT'])
+        return self.get_attr(ZONE_ENTRY['ZROOT'], refresh)
 
-    def get_state(self):
+    def get_state(self, refresh=True):
         """
         returns an integer reprezenting state in ZONE_STATE
         please call refresh_all_info() before calling get_state()
+        @param refresh=True - refresh info from zoneadm list
         """
-        return ZONE_STATE[self.get_attr(ZONE_ENTRY['ZSTATE'])]
+        return ZONE_STATE[self.get_attr(ZONE_ENTRY['ZSTATE'], refresh)]
 
-    def get_brand(self):
-        """
-        returns brand of the zone
-        """
-        return self.get_attr(ZONE_ENTRY['ZBRAND'])
-
-    def get_name(self):
+    def get_name(self, refresh=False):
         """
         returns zone name as listed by zoneadm list -pc
+        @param refresh=False - refresh info from zoneadm list
         """
-        return self.get_attr(ZONE_ENTRY['ZNAME'])
+        return self.get_attr(ZONE_ENTRY['ZNAME'], refresh)
 
-    def get_zone_root(self):
+    def get_zone_root(self, refresh=False):
         """
         returns zone root
         eg. /zones/myzone/root
+        @param refresh=False - refresh info from zoneadm list
         """
-        return self.get_zonepath() + "/root"
+        return self.get_zonepath(refresh) + "/root"
 
     #--------------------------------------------------------------------------
     # Changing state of Zones
@@ -316,22 +362,39 @@ class Zone(object):
     #--------------------------------------------------------------------------
     def exists(self):
         """
-        function returns True in case that zone already exist otherwise 
+        function returns True in case that zone already exist otherwise
         false is returned
         """
-        return get_zone_by_name(self.get_name())
+        return bool(get_zone_by_name(self.get_name(refresh=False)))
 
-    def create(self):
+    def create(self, template):
         """
         creates a zone from given configuration
+        @param template - one of /etc/zones/*.xml without suffix
         """
-        self._create_minimal() # Let's create a zone with minimal config first
-        brand = self.get_brand()
-
-        if brand in ("solaris10", "solaris"):
-            self._zonecfg_set("brand", brand)
+        self._create_minimal(template) # Let's create a zone with minimal config first
 
         #self._write_sysidcfg()
+
+    def _create_minimal(self, template):
+        """
+        minimal form of the creation command
+        Note: RBAC aware (pfexec and roles check)
+        @param template - one of /etc/zones/*.xml without suffix
+        """
+        check_user_permissions()
+        if self.exists(): raise ZoneException("Zone already exists.")
+
+        check_zone_template(template)
+
+
+        cmd_base = ["pfexec", CMD_ZONECFG, "-z", self.get_name(refresh=False)]
+        minimal_config = ["create -t %s" % template,
+                "set zonepath=%s" % self.get_zonepath(refresh=False), "exit"]
+        cmd_base.append(";".join(minimal_config))
+
+        getoutputs(cmd_base)
+
 
     def _write_sysidcfg(self, config_dict):
         """
@@ -386,25 +449,18 @@ class Zone(object):
         cmd_base.append("set %s=%s;exit" % (str(attr), str(value)))
         getoutputs(cmd_base)
 
-    def _create_minimal(self):
-        """
-        minimal form of the creation command:
-        Note: RBAC aware (pfexec and roles check)
-        """
+    def uninstall(self):
         check_user_permissions()
-        cmd_base = ["pfexec", CMD_ZONECFG, "-z", self.get_name()]
-        minimal_config = ["create","set zonepath=%s" % self.get_zonepath(),
-                "exit"]
-        cmd_base.append(";".join(minimal_config))
-        getoutputs(cmd_base)
-
+        self._zone_in_states(ZONE_STATE['installed'])
+        uninstall_cmd = [CMD_PFEXEC, CMD_ZONEADM, "-z", self.get_name(), "uninstall", "-F"]
+        getoutputs(uninstall_cmd)
     def delete(self):
         """
         Note: RBAC aware (pfexec and roles check)
         """
         check_user_permissions()
-        self._zone_in_states(ZONE_STATE['configured'],)
-        del_cmd = ["pfexec", CMD_ZONECFG, "-z", self.get_name(), "delete", "-F"]
+        self._zone_in_states((ZONE_STATE['configured'],))
+        del_cmd = [CMD_PFEXEC, CMD_ZONECFG, "-z", self.get_name(), "delete", "-F"]
         getoutputs(del_cmd)
 
     #--------------------------------------------------------------------------
@@ -425,7 +481,7 @@ class Zone(object):
         @raise PrivilegesError in case of missing privileges
         """
         #zlogin [ -dCES ] [ -e cmdchar ] [-l user] zonename [command [args ...]]
-        zlogin_cmd = [CMD_ZLOGIN]
+        zlogin_cmd = [CMD_PFEXEC, CMD_ZLOGIN]
 
         if user:
             zlogin_cmd.append("-l %s" % user)
@@ -433,8 +489,7 @@ class Zone(object):
         zlogin_cmd.append(self.get_name())
         zlogin_cmd.append("%s" % str(cmd))
 
-        zlogin_cmd = " ".join(zlogin_cmd)
-        getoutputs(zlogin_cmd)
+        return getoutputs(zlogin_cmd)
 
 # End of Class
 
@@ -447,6 +502,13 @@ def get_zone_by_name(zname):
             return zone
 
     return None
+
+def list_zone_names():
+    """
+    returns list of Zone(*).get_name() outputs
+    """
+    get_name = lambda a: a.get_name()
+    return map(get_name, list_zones())
 
 def list_zones(pattern=None):
     """
