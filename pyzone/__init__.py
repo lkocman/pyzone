@@ -451,9 +451,10 @@ class Zone(object):
 
     def uninstall(self):
         check_user_permissions()
-        self._zone_in_states(ZONE_STATE['installed'])
+        self._zone_in_states((ZONE_STATE['installed'],))
         uninstall_cmd = [CMD_PFEXEC, CMD_ZONEADM, "-z", self.get_name(), "uninstall", "-F"]
         getoutputs(uninstall_cmd)
+
     def delete(self):
         """
         Note: RBAC aware (pfexec and roles check)
@@ -484,7 +485,8 @@ class Zone(object):
         zlogin_cmd = [CMD_PFEXEC, CMD_ZLOGIN]
 
         if user:
-            zlogin_cmd.append("-l %s" % user)
+            zlogin_cmd.append("-l")
+            zlogin_cmd.append("%s" % user)
 
         zlogin_cmd.append(self.get_name())
         zlogin_cmd.append("%s" % str(cmd))
