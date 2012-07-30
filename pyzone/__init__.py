@@ -30,6 +30,7 @@ ZONE_STATE = {
     'installed' : 1, # halted zone
     'configured' : 2, # not yet installed or detached zone
     'ready' : 3, # assigned id but no user process yet running
+    'incomplete' : 4, # during installation
 }
 
 # TODO: more Zone*Exceptions and replace Key/ValueErrors
