@@ -482,6 +482,8 @@ class Zone(object):
         @raise OSError if returncode != 0
         @raise PrivilegesError in case of missing privileges
         """
+
+        self._zone_in_states((ZONE_STATE['running'],))
         #zlogin [ -dCES ] [ -e cmdchar ] [-l user] zonename [command [args ...]]
         zlogin_cmd = [CMD_PFEXEC, CMD_ZLOGIN]
 
