@@ -452,7 +452,7 @@ class Zone(object):
 
     def uninstall(self):
         check_user_permissions()
-        self._zone_in_states((ZONE_STATE['installed'],))
+        self._zone_in_states((ZONE_STATE['installed'], [ZONE_STATE['incomplete']))
         uninstall_cmd = [CMD_PFEXEC, CMD_ZONEADM, "-z", self.get_name(), "uninstall", "-F"]
         getoutputs(uninstall_cmd)
 
