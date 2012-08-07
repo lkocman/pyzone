@@ -286,8 +286,8 @@ class Zone(object):
                any value in state_list
         """
         if self.get_state() not in state_list:
-            raise ZoneException("Zone must be in one of states: %s." %
-                    str(state_list))
+            raise ZoneException("Zone '%s' must be in one of states: %s." %
+                    self.get_name(), str(state_list))
 
     def boot(self):
         """
