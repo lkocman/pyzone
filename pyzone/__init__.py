@@ -72,8 +72,9 @@ def check_user_permissions(profiles=("Primary Administrator",
         @param lst
         @param sublst
         """
-        for i in sublist:
-            if i not in lst: return False
+        for i in sublst:
+            if i not in lst:
+                return False
         return True
 
     def oneof(item_list, items):
@@ -84,7 +85,8 @@ def check_user_permissions(profiles=("Primary Administrator",
         """
         for i in item_list:
             if type(i) == type(list()) or type(i) == type(dict()):
-                if sublist_in(item_list, i): return True
+                if sublist_in(item_list, i):
+                    return True
             else:
                 if i in items: return True
 
@@ -193,12 +195,11 @@ class Zone(object):
 
         getoutputs(zonecfg_cmd)
 
-    def add_property(self, property_cfg):
+    def add_property(self, name, opts):
         """
         This function basically handles actions such as add fs ...
-        @param section_cfg
-               format { 'section' : [(attr, value), (attr2, value), ...],  }
-               You can specify multiple sections inside one dict
+        @param name - e.g. capped-memory
+        @param opts - dict with values {'attr1' : 'value1', }
 
         Note: RBAC (pfexec) aware
         """
@@ -212,24 +213,20 @@ class Zone(object):
             # TODO "net" : (),
         }
 
+        if name not in available_properties.keys():
+            raise KeyError("Unsupported property '%s'. Supported properties are: %s." % 
+                name, available_properties[name])
 
-        for prop, attrs in property_cfg.iteritems():
-            if prop not in available_properties.keys():
-                raise KeyError ("add_zone_attr: unknown property %s." % prop)
+        if set(opts.keys()) != set(available_properties[name]):
+            raise ValueError("Given opts does not match requirements. Required opts: '%s'" %
+                available_properties[name])
 
-            prop_part = ["add %s" % prop]
-            get_keys = lambda x: x[0] # first item from each tuple in attrs
-            keys = set(map(get_keys, attrs))
+        prop_part = ["add %s" % name]
 
-            if keys != set(available_properties[prop]):
-                raise ValueError("selected attributes: %s do not match "
-                "expectations: %s." % (keys, set(available_properties[prop])))
+        for key, value in opts.iteritems():
+            prop_part.append("set %s=%s" % (key, str(value)))
 
-            for attr in attrs:
-                prop_part.append("set %s=%s" % (str(attr[0]), str(attr[1])))
-
-            prop_part.append("end") # End of section
-
+        prop_part.append("end") # End of section
         prop_part.append("exit")
 
         zonecfg_cmd.append(";".join(prop_part))
