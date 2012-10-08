@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-pyzone - a simple module for managing Solaris Zones
+pyzone - a simple module for managing Solaris zones
 """
 import subprocess, os, re
 
@@ -49,14 +49,15 @@ def check_zone_template(template):
     @raise ZoneException in case that template does not exist
     @param template
     """
-    if not os.path.isfile(os.path.join(ZONE_TMPL_DIR, template + ZONE_TMPL_SUFFIX)):
+    if not os.path.isfile(os.path.join(ZONE_TMPL_DIR, template +
+        ZONE_TMPL_SUFFIX)):
         raise ZoneException("Template %s does not exist." % (template))
 
 def check_user_permissions(profiles=("Primary Administrator",
                             ("Zone Management", "Zone Security"))):
     """
-    this function is being used to check wheather the user is capable of executing
-    zone* commands
+    this function is being used to check wheather the user is capable
+    of executing zone* commands
 
     @param - profiles list of profiles to match. Default:
              ["Primary Administrator", ("Zone Management", "Zone Security")]
@@ -181,7 +182,7 @@ class Zone(object):
     #--------------------------------------------------------------------------
     # some extra set/add calls
     #--------------------------------------------------------------------------
-    def remove_property(self, property_name):
+    def remove_property(self, property_name, print_cmd=False):
         """
         removes property such as fs, dataset, net ...
         @param property_name - a string
@@ -193,9 +194,12 @@ class Zone(object):
         property_part = "remove %s; exit" % property_name
         zonecfg_cmd.append(property_part)
 
-        getoutputs(zonecfg_cmd)
+        if print_cmd:
+            return [zonecfg_cmd, ]
 
-    def add_property(self, name, opts):
+        return getoutputs(zonecfg_cmd)
+
+    def add_property(self, name, opts, print_cmd=False):
         """
         This function basically handles actions such as add fs ...
         @param name - e.g. capped-memory
@@ -214,7 +218,7 @@ class Zone(object):
         }
 
         if name not in available_properties.keys():
-            raise KeyError("Unsupported property '%s'. Supported properties are: %s." % 
+            raise KeyError("Unsupported property '%s'. Supported properties are: %s." %
                 name, available_properties[name])
 
         if set(opts.keys()) != set(available_properties[name]):
@@ -230,6 +234,9 @@ class Zone(object):
         prop_part.append("exit")
 
         zonecfg_cmd.append(";".join(prop_part))
+        if print_cmd:
+            return [zonecfg_cmd, ]
+
         getoutputs(zonecfg_cmd)
 
     #--------------------------------------------------------------------------
@@ -287,15 +294,20 @@ class Zone(object):
                     "Current state is %s." %
                     (self.get_name(), str(state_list), str(self.get_state())))
 
-    def boot(self):
+    def boot(self, print_cmd=False):
         """
         note: RBAC aware (pfexec and roles check)
+        @print_cmd=False - don't execute anything only return a list with
+                           commands [['pfexec' ,...], ]
         """
         check_user_permissions()
 
         self._zone_in_states((ZONE_STATE['installed'],))
         boot_cmd = [CMD_PFEXEC , CMD_ZONEADM, "-z", self.get_name(), "boot"]
-        getoutputs(boot_cmd)
+        if print_cmd:
+            return [boot_cmd, ]
+
+        return getoutputs(boot_cmd)
 
 
     def ready(self):
@@ -306,7 +318,7 @@ class Zone(object):
 
         self._zone_in_states((ZONE_STATE['installed'],))
         ready_cmd = [CMD_PFEXEC, CMD_ZONEADM, "-z", self.get_name(), "ready"]
-        getoutputs(ready_cmd)
+        return getoutputs(ready_cmd)
 
     def shutdown(self):
         """
@@ -317,7 +329,7 @@ class Zone(object):
         self._zone_in_states((ZONE_STATE['running'],))
         shutdown_cmd = [CMD_PFEXEC , CMD_ZONEADM, "-z", self.get_name(),
                 "shutdown"]
-        getoutputs(shutdown_cmd)
+        return getoutputs(shutdown_cmd)
 
     def halt(self):
         """
@@ -327,7 +339,7 @@ class Zone(object):
 
         self._zone_in_states((ZONE_STATE['running'],))
         halt_cmd = [CMD_PFEXEC , CMD_ZONEADM, "-z", self.get_name(), "halt"]
-        getoutputs(halt_cmd)
+        return getoutputs(halt_cmd)
 
     def reboot(self):
         """
@@ -338,14 +350,16 @@ class Zone(object):
         self._zone_in_states((ZONE_STATE['running'],))
         reboot_cmd = [CMD_PFEXEC , CMD_ZONEADM, "-z", self.get_name(),
                 "shutdown", "-r"]
-        getoutputs(reboot_cmd)
+        return getoutputs(reboot_cmd)
 
     #--------------------------------------------------------------------------
     # Install
     #--------------------------------------------------------------------------
-    def install(self):
+    def install(self, print_cmd=False):
         """
         note: RBAC aware (pfexec and roles check)
+        @print_cmd=False - don't execute anything only return a list with
+                           commands [['pfexec' ,...], ]
         """
         check_user_permissions()
 
@@ -353,8 +367,11 @@ class Zone(object):
 
         install_cmd = [CMD_PFEXEC, CMD_ZONEADM, "-z", self.get_name(),
                 "install"]
-        getoutputs(install_cmd)
-        # TBD post install configuration
+
+        if print_cmd:
+            return [install_cmd, ]
+        return getoutputs(install_cmd)
+        # TODO post install configuration
 
     #--------------------------------------------------------------------------
     # Deletion / Creation
@@ -366,16 +383,18 @@ class Zone(object):
         """
         return bool(get_zone_by_name(self.get_name(refresh=False)))
 
-    def create(self, template):
+    def create(self, template, print_cmd=False):
         """
         creates a zone from given configuration
         @param template - one of /etc/zones/*.xml without suffix
+        @print_cmd=False - don't execute anything only return a list with
+                           commands [['pfexec' ,...], ]
         """
-        self._create_minimal(template) # Let's create a zone with minimal config first
+        return self._create_minimal(template, print_cmd)
 
         #self._write_sysidcfg()
 
-    def _create_minimal(self, template):
+    def _create_minimal(self, template, print_cmd=False):
         """
         minimal form of the creation command
         Note: RBAC aware (pfexec and roles check)
@@ -392,7 +411,10 @@ class Zone(object):
                 "set zonepath=%s" % self.get_zonepath(refresh=False), "exit"]
         cmd_base.append(";".join(minimal_config))
 
-        getoutputs(cmd_base)
+        if print_cmd:
+            return [cmd_base, ]
+        return getoutputs(cmd_base)
+
 
 
     def _write_sysidcfg(self, config_dict):
@@ -446,13 +468,15 @@ class Zone(object):
         check_user_permissions()
         cmd_base = [CMD_PFEXEC, CMD_ZONECFG, "-z", self.get_name()]
         cmd_base.append("set %s=%s;exit" % (str(attr), str(value)))
-        getoutputs(cmd_base)
+        return getoutputs(cmd_base)
 
     def uninstall(self):
         check_user_permissions()
-        self._zone_in_states((ZONE_STATE['installed'], ZONE_STATE['incomplete']))
-        uninstall_cmd = [CMD_PFEXEC, CMD_ZONEADM, "-z", self.get_name(), "uninstall", "-F"]
-        getoutputs(uninstall_cmd)
+        self._zone_in_states((ZONE_STATE['installed'],
+         ZONE_STATE['incomplete']))
+        uninstall_cmd = [CMD_PFEXEC, CMD_ZONEADM, "-z", self.get_name(),
+         "uninstall", "-F"]
+        return getoutputs(uninstall_cmd)
 
     def delete(self):
         """
@@ -460,14 +484,15 @@ class Zone(object):
         """
         check_user_permissions()
         self._zone_in_states((ZONE_STATE['configured'],))
-        del_cmd = [CMD_PFEXEC, CMD_ZONECFG, "-z", self.get_name(), "delete", "-F"]
-        getoutputs(del_cmd)
+        del_cmd = [CMD_PFEXEC, CMD_ZONECFG, "-z", self.get_name(), "delete",
+         "-F"]
+        return getoutputs(del_cmd)
 
     #--------------------------------------------------------------------------
     # Remote execution
     #--------------------------------------------------------------------------
 
-    def execute(self, cmd, user="root"):
+    def execute(self, cmd, user="root", print_cmd=False):
         """
         uses zlogin to execute a command
         Note: RBAC aware (pfexec and roles check)
@@ -492,6 +517,8 @@ class Zone(object):
         zlogin_cmd.append(self.get_name())
         zlogin_cmd.append("%s" % str(cmd))
 
+        if print_cmd:
+            return [zlogin_cmd, ]
         return getoutputs(zlogin_cmd)
 
 # End of Class
@@ -547,6 +574,5 @@ def list_zones(pattern=None):
             set_attr(tmp_zone, item, line)
 
         zlist.append(tmp_zone)
-
 
     return zlist
