@@ -483,7 +483,7 @@ class Zone(object):
         Note: RBAC aware (pfexec and roles check)
         """
         check_user_permissions()
-        self._zone_in_states((ZONE_STATE['configured'],))
+        self._zone_in_states((ZONE_STATE['configured'], ZONE_STATE['incomplete']))
         del_cmd = [CMD_PFEXEC, CMD_ZONECFG, "-z", self.get_name(), "delete",
          "-F"]
         return getoutputs(del_cmd)
