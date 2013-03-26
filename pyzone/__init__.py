@@ -353,7 +353,7 @@ class Zone(object):
         return getoutputs(reboot_cmd)
 
     #--------------------------------------------------------------------------
-    # Install
+    # Install / Clone
     #--------------------------------------------------------------------------
     def install(self, print_cmd=False):
         """
@@ -372,6 +372,21 @@ class Zone(object):
             return [install_cmd, ]
         return getoutputs(install_cmd)
         # TODO post install configuration
+
+    def clone(self, source_zone, print_cmd=False):
+        """
+        note: RBAC aware (pfexec and roles check)
+        @source_zone - a Zone() object in a installed state
+        @print_cmd=False - don't execute anything only return a list with
+                           commands [['pfexec' ,...], ]
+        """
+        # raise exception if it's not halted
+        source_zone._zone_in_states((ZONE_STATE['installed']))
+
+        clone_cmd = [CMD_PFEXEC, CMD_ZONEADM, "-z", self.get_name(), "clone", source_zone.get_name()]
+        if print_cmd:
+            return [clone_cmd, ]
+        return getoutputs(install_cmd)
 
     #--------------------------------------------------------------------------
     # Deletion / Creation
