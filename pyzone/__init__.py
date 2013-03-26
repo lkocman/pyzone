@@ -150,6 +150,18 @@ class Zone(object):
             # our ZONE_MAPING reflects _zone_attr
             self._zone_attr[val] = line_items[val]
 
+        # other comes later     net/anet
+        extra_info = ['autoboot', 'brand', 'ip-type', 'bootargs', 'file-mac-profile', 'pool', 'limitpriv', 'scheduling-class', 'hostid', 'fs-allowed']
+        info_cmd = [CMD_ZONECFG, "-z", self._zone_attr[ZONE_ENTRY['ZNAME']], "info"]
+        line_items = str(getoutputs(info_cmd)).split("\n")
+
+        for line in line_items:
+            for attr in extra_info:
+                if line.startswith(attr+":"):
+                    self._zone_attr[attr] = line[line.find(':')+1:].strip()
+
+
+
     def set_attr(self, attr, value):
         """
         sets zone attribute
@@ -381,12 +393,12 @@ class Zone(object):
                            commands [['pfexec' ,...], ]
         """
         # raise exception if it's not halted
-        source_zone._zone_in_states((ZONE_STATE['installed']))
+        source_zone._zone_in_states((ZONE_STATE['installed'],))
 
         clone_cmd = [CMD_PFEXEC, CMD_ZONEADM, "-z", self.get_name(), "clone", source_zone.get_name()]
         if print_cmd:
             return [clone_cmd, ]
-        return getoutputs(install_cmd)
+        return getoutputs(clone_cmd)
 
     #--------------------------------------------------------------------------
     # Deletion / Creation
@@ -405,6 +417,10 @@ class Zone(object):
         @print_cmd=False - don't execute anything only return a list with
                            commands [['pfexec' ,...], ]
         """
+        brand_mapping = {'solaris' : 'SYSsolaris', 'solaris10' : 'SYSsolaris10'}
+        if brand_mapping.has_key(template):
+            template = brand_mapping[template]
+
         return self._create_minimal(template, print_cmd)
 
         #self._write_sysidcfg()
