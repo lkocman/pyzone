@@ -430,7 +430,7 @@ class Zone(object):
         @print_cmd=False - don't execute anything only return a list with
                            commands [['pfexec' ,...], ]
         """
-        brand_mapping = {'solaris' : 'SYSsolaris', 'solaris10' : 'SYSsolaris10'}
+        brand_mapping = {'solaris11' : 'SYSsolaris', 'solaris' : 'SYSsolaris', 'solaris10' : 'SYSsolaris10'}
         if brand_mapping.has_key(template):
             template = brand_mapping[template]
 
@@ -455,8 +455,13 @@ class Zone(object):
 
         supported_attr = {ZONE_ENTRY["ZIPTYPE"] : 'ip-type',
                           ZONE_ENTRY["ZROOT"]: 'zonepath',}
-        for zone_attr in self._zone_attrs.keys():
-            minimal_config.append("set %s=%s" % (supported_attr[zone_attr], self.get_attr([zone_attr], refresh=False)))
+        for zone_attr in supported_attr.keys():
+            key = supported_attr[zone_attr]
+            try:
+                value = self._zone_attr[zone_attr]
+                minimal_config.append("set %s=%s" % (key,value ))
+            except KeyError:
+                continue
         cmd_base.append(";".join(minimal_config))
 
         if print_cmd:
