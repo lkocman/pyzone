@@ -128,11 +128,11 @@ def getoutputs(cmd, check_privileges=True):
     return stdout
 
 class Zone(object):
-    """simple zone wrapper"""
+    """
+    simple zone wrapper
+    @param name - name of the zone
+    """
     def __init__(self, name):
-        """
-        @param name - name of the zone
-        """
         self._zone_attr = {}
         self.set_attr(ZONE_ENTRY['ZNAME'], name)
 
@@ -254,6 +254,19 @@ class Zone(object):
     #--------------------------------------------------------------------------
     # wrapped get_attr calls
     #--------------------------------------------------------------------------
+    def set_iptype(self, iptype):
+        avail_types= ("shared", "exclusive")
+        if iptype not in avail_types:
+            raise ValueError("unsupported ip-type %s" % iptype)
+        self.set_attr(ZONE_ENTRY['ZIPTYPE'], iptype)
+
+    def get_iptype(self, refresh=False):
+        """
+        returns an integer reprezenting state in ZONE_STATE
+        @param refresh=True - refresh info from zoneadm list
+        """
+        return self.get_attr(ZONE_ENTRY['ZIPTYPE'], refresh)
+
     def set_zonepath(self, path):
         """
         just wrapped set_attr as this will be used during zone creation
@@ -438,8 +451,12 @@ class Zone(object):
 
 
         cmd_base = ["pfexec", CMD_ZONECFG, "-z", self.get_name(refresh=False)]
-        minimal_config = ["create -t %s" % template,
-                "set zonepath=%s" % self.get_zonepath(refresh=False), "exit"]
+        minimal_config = ["create -t %s" % template,]
+
+        supported_attr = {ZONE_ENTRY["ZIPTYPE"] : 'ip-type',
+                          ZONE_ENTRY["ZROOT"]: 'zonepath',}
+        for zone_attr in self._zone_attrs.keys():
+            minimal_config.append("set %s=%s" % (supported_attr[zone_attr], self.get_attr([zone_attr], refresh=False)))
         cmd_base.append(";".join(minimal_config))
 
         if print_cmd:
